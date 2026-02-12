@@ -4,243 +4,172 @@
      ═══════════════════════════════════════ */
   let enabled = true;
 
-  /* 监听来自 background.js 的开关消息 */
   chrome.runtime?.onMessage?.addListener((msg) => {
     if (msg.type === "toggle") {
       enabled = msg.enabled;
       if (enabled) {
-        cleanup();
+        activate();
       } else {
-        restoreAll();
+        deactivate();
       }
-    }
-    if (msg.type === "query") {
-      /* background 查询当前状态 */
     }
   });
 
-  /* 启动时读取存储的状态 */
   chrome.storage?.local?.get("enabled", (result) => {
-    enabled = result.enabled !== false; /* 默认开启 */
-    if (enabled) {
-      cleanup();
-    }
+    enabled = result.enabled !== false;
+    if (enabled) activate();
   });
 
   /* ═══════════════════════════════════════
-     常量定义
+     常量
      ═══════════════════════════════════════ */
 
   const HOME = "https://www.youtube.com/";
   const STYLE_ID = "yt-no-shorts-style";
-  const NUKED_ATTR = "data-shorts-nuked";
 
-  /* ─── Shorts 多语言文本标签 ─── */
   const SHORTS_TEXTS = [
-    "shorts",
-    "短片",
-    "短视频",
-    "ショート",
-    "쇼츠",
-    "curtas",
-    "cortos",
-    "courts",
-    "kurzvideos",
-    "cortometraggi",
+    "shorts", "短片", "短视频", "ショート", "쇼츠",
+    "curtas", "cortos", "courts", "kurzvideos", "cortometraggi",
   ];
-
-  /* ─── Shorts 渲染器组件选择器 ─── */
-  const SHORTS_RENDERER_SELECTOR = [
-    "ytd-reel-shelf-renderer",
-    "ytd-reel-video-renderer",
-    "ytd-reel-item-renderer",
-    "ytd-shorts",
-    "ytd-shorts-module-renderer",
-    "ytd-rich-shelf-renderer[is-shorts]",
-    "ytd-rich-shelf-renderer[is-reel]",
-    "ytd-structured-description-shorts-shelf-renderer",
-    "ytm-reel-shelf-renderer",
-    "ytm-shorts-lockup-view-model",
-    "ytm-shorts-lockup-view-model-v2",
-  ].join(", ");
-
-  /* ─── Shorts 链接选择器 ─── */
-  const SHORTS_LINK_SELECTOR =
-    'a[href*="/shorts/"], a[href*="/shorts?"], a[href*="feed/shorts"]';
-
-  /* ─── Shorts 容器选择器（向上查找最近容器进行隐藏） ─── */
-  const SHORTS_CONTAINER_SELECTOR = [
-    "ytd-guide-entry-renderer",
-    "ytd-mini-guide-entry-renderer",
-    "ytd-rich-item-renderer",
-    "ytd-rich-section-renderer",
-    "ytd-grid-video-renderer",
-    "ytd-video-renderer",
-    "ytd-compact-video-renderer",
-    "ytd-reel-item-renderer",
-    "ytd-reel-video-renderer",
-    "ytd-rich-shelf-renderer",
-    "ytd-item-section-renderer",
-    "ytd-shelf-renderer",
-    "ytm-item-section-renderer",
-    "ytm-video-with-context-renderer",
-    "ytm-compact-video-renderer",
-    "ytm-rich-item-renderer",
-    "ytm-shorts-lockup-view-model",
-    "ytm-shorts-lockup-view-model-v2",
-    "tp-yt-paper-item",
-  ];
-
-  /* ─── 频道页/导航 Tab 选择器 ─── */
-  const SHORTS_TAB_SELECTOR = [
-    "ytd-guide-entry-renderer",
-    "ytd-mini-guide-entry-renderer",
-    "tp-yt-paper-item",
-    "ytm-pivot-bar-item-renderer",
-    "yt-tab-shape",
-    "tp-yt-paper-tab",
-    "yt-chip-cloud-chip-renderer",
-    "yt-tab-group-shape yt-tab-shape",
-  ].join(", ");
 
   /* ═══════════════════════════════════════
-     工具函数
+     核心策略：纯 CSS 隐藏
+     ——————————————————————————————
+     所有 Shorts 元素都通过 <style> 标签隐藏，
+     不使用 JS 内联样式修改 DOM，
+     这样不会触发 MutationObserver 也不会引起闪烁。
      ═══════════════════════════════════════ */
 
-  function normalizeUrl(url) {
-    try {
-      return new URL(url, location.origin);
-    } catch {
-      return null;
+  const CSS_RULES = `
+    /* ── Shorts 专用渲染器（直接匹配标签名） ── */
+    ytd-reel-shelf-renderer,
+    ytd-reel-video-renderer,
+    ytd-reel-item-renderer,
+    ytd-shorts,
+    ytd-shorts-module-renderer,
+    ytd-structured-description-shorts-shelf-renderer,
+    ytm-reel-shelf-renderer,
+    ytm-shorts-lockup-view-model,
+    ytm-shorts-lockup-view-model-v2 {
+      display: none !important;
     }
-  }
 
-  function isYoutubeHost(hostname) {
-    return hostname === "youtube.com" || hostname.endsWith(".youtube.com");
-  }
+    /* ── 带 Shorts 属性标记的 shelf ── */
+    ytd-rich-shelf-renderer[is-shorts],
+    ytd-rich-shelf-renderer[is-reel] {
+      display: none !important;
+    }
 
-  function isShortsPath(pathname) {
-    /* 仅匹配 /shorts/ 或 /shorts?... 或 /feed/shorts */
-    return /\/shorts(\/|$|\?)/.test(pathname) || pathname.startsWith("/feed/shorts");
-  }
+    /* ── 通过 overlay-style 属性匹配 Shorts 缩略图并隐藏父卡片 ── */
+    ytd-rich-item-renderer:has(ytd-thumbnail-overlay-time-status-renderer[overlay-style="SHORTS"]),
+    ytd-video-renderer:has(ytd-thumbnail-overlay-time-status-renderer[overlay-style="SHORTS"]),
+    ytd-grid-video-renderer:has(ytd-thumbnail-overlay-time-status-renderer[overlay-style="SHORTS"]),
+    ytd-compact-video-renderer:has(ytd-thumbnail-overlay-time-status-renderer[overlay-style="SHORTS"]) {
+      display: none !important;
+    }
 
-  function isShortsUrl(url) {
-    const u = normalizeUrl(url);
-    if (!u) return false;
-    if (!isYoutubeHost(u.hostname)) return false;
-    if (isShortsPath(u.pathname)) return true;
-    return u.searchParams.get("feature") === "shorts";
-  }
+    /* ── 通过 Shorts 链接匹配并隐藏父卡片 ── */
+    ytd-rich-item-renderer:has(a[href*="/shorts/"]),
+    ytd-video-renderer:has(a[href*="/shorts/"]),
+    ytd-grid-video-renderer:has(a[href*="/shorts/"]),
+    ytd-compact-video-renderer:has(a[href*="/shorts/"]) {
+      display: none !important;
+    }
+
+    /* ── 搜索结果中的 Shorts 卡片 ── */
+    ytd-search ytd-video-renderer:has(a[href*="/shorts/"]),
+    ytd-search ytd-video-renderer:has(ytd-thumbnail-overlay-time-status-renderer[overlay-style="SHORTS"]) {
+      display: none !important;
+    }
+
+    /* ── Shorts Remix 按钮 ── */
+    ytd-button-renderer[button-renderer="SHORTS_REMIX"] {
+      display: none !important;
+    }
+
+    /* ── 侧边栏 Shorts 入口（通过链接匹配） ── */
+    ytd-guide-entry-renderer:has(a[href="/feed/shorts"]),
+    ytd-mini-guide-entry-renderer:has(a[href="/feed/shorts"]) {
+      display: none !important;
+    }
+
+    /* ── 频道页 Shorts Tab ── */
+    yt-tab-shape[tab-title="Shorts"],
+    yt-tab-shape[tab-title="shorts"] {
+      display: none !important;
+    }
+  `;
 
   /* ═══════════════════════════════════════
-     CSS 注入
+     CSS 注入/移除
      ═══════════════════════════════════════ */
 
-  function injectBlockingStyle() {
+  function injectStyle() {
     if (document.getElementById(STYLE_ID)) return;
-
     const style = document.createElement("style");
     style.id = STYLE_ID;
-    style.textContent = `
-      /* ── Shorts 渲染器 ── */
-      ${SHORTS_RENDERER_SELECTOR} {
-        display: none !important;
-      }
-
-      /* ── Shorts 链接 ── */
-      ${SHORTS_LINK_SELECTOR} {
-        display: none !important;
-      }
-
-      /* ── 包含 Shorts overlay 标记的视频卡片 ── */
-      ytd-rich-item-renderer:has(ytd-thumbnail-overlay-time-status-renderer[overlay-style="SHORTS"]),
-      ytd-video-renderer:has(ytd-thumbnail-overlay-time-status-renderer[overlay-style="SHORTS"]),
-      ytd-grid-video-renderer:has(ytd-thumbnail-overlay-time-status-renderer[overlay-style="SHORTS"]),
-      ytd-compact-video-renderer:has(ytd-thumbnail-overlay-time-status-renderer[overlay-style="SHORTS"]) {
-        display: none !important;
-      }
-
-      /* ── Shorts Remix 按钮 ── */
-      ytd-button-renderer[button-renderer="SHORTS_REMIX"] {
-        display: none !important;
-      }
-
-      /* ── 搜索结果中的 Shorts ── */
-      ytd-search ytd-video-renderer:has(ytd-thumbnail-overlay-time-status-renderer[overlay-style="SHORTS"]) {
-        display: none !important;
-      }
-    `;
+    style.textContent = CSS_RULES;
     (document.documentElement || document.head || document.body).appendChild(style);
   }
 
-  function removeBlockingStyle() {
-    const style = document.getElementById(STYLE_ID);
-    if (style) style.remove();
+  function removeStyle() {
+    const el = document.getElementById(STYLE_ID);
+    if (el) el.remove();
   }
 
   /* ═══════════════════════════════════════
-     DOM 操作
+     JS 补充清理：仅处理 CSS 无法匹配的内容
+     ——————————————————————————————
+     只处理需要文本匹配的导航标签，
+     使用 data 属性标记替代内联样式，
+     通过 CSS class 隐藏而非直接修改 style。
      ═══════════════════════════════════════ */
 
-  function hideElement(el) {
-    if (!el || el.getAttribute(NUKED_ATTR) === "1") return;
-    el.setAttribute(NUKED_ATTR, "1");
-    el.style.setProperty("display", "none", "important");
+  const HIDE_CLASS = "yt-no-shorts-hidden";
+
+  /* 确保隐藏 class 的样式存在 */
+  function ensureHideClass() {
+    const id = "yt-no-shorts-hide-class";
+    if (document.getElementById(id)) return;
+    const s = document.createElement("style");
+    s.id = id;
+    s.textContent = `.${HIDE_CLASS} { display: none !important; }`;
+    (document.documentElement || document.head || document.body).appendChild(s);
   }
 
-  function closestShortsContainer(node) {
-    for (const selector of SHORTS_CONTAINER_SELECTOR) {
-      const container = node.closest(selector);
-      if (container) return container;
-    }
-    return node;
+  function hideByClass(el) {
+    if (!el || el.classList.contains(HIDE_CLASS)) return;
+    el.classList.add(HIDE_CLASS);
   }
 
-  /* ─── 清除 Shorts 链接 ─── */
-  function nukeShortsLinks() {
-    document.querySelectorAll('a[href*="/shorts"]').forEach((anchor) => {
-      const href = anchor.getAttribute("href");
-      if (!href || !isShortsUrl(href)) return;
-      hideElement(closestShortsContainer(anchor));
-    });
-  }
+  /* 通过文本内容匹配 Shorts 标签并隐藏 */
+  function hideShortsTabs() {
+    const selectors = [
+      "ytd-guide-entry-renderer",
+      "ytd-mini-guide-entry-renderer",
+      "tp-yt-paper-item",
+      "ytm-pivot-bar-item-renderer",
+    ];
 
-  /* ─── 清除 Shorts 渲染器组件 ─── */
-  function nukeShortsRenderers() {
-    document.querySelectorAll(SHORTS_RENDERER_SELECTOR).forEach(hideElement);
-  }
-
-  /* ─── 清除 Shorts overlay 标记的视频 ─── */
-  function nukeShortsOverlays() {
-    document
-      .querySelectorAll(
-        'ytd-thumbnail-overlay-time-status-renderer[overlay-style="SHORTS"]'
-      )
-      .forEach((overlay) => {
-        hideElement(closestShortsContainer(overlay));
+    selectors.forEach((sel) => {
+      document.querySelectorAll(sel).forEach((node) => {
+        const text = (node.textContent || "").trim().toLowerCase();
+        if (text && SHORTS_TEXTS.some((label) => text === label || text.includes(label))) {
+          /* 确认是导航 Shorts 入口而非普通内容 */
+          const link = node.querySelector("a");
+          if (!link || (link.href && link.href.includes("shorts"))) {
+            hideByClass(node);
+          }
+        }
       });
-  }
-
-  /* ─── 清除导航栏和频道页的 Shorts Tab ─── */
-  function nukeShortsTabsByLabel() {
-    document.querySelectorAll(SHORTS_TAB_SELECTOR).forEach((node) => {
-      const text = (node.textContent || "").trim().toLowerCase();
-      if (!text) return;
-      if (SHORTS_TEXTS.some((label) => text.includes(label))) {
-        hideElement(node);
-      }
     });
-    document
-      .querySelectorAll('yt-tab-shape[tab-title="Shorts"]')
-      .forEach(hideElement);
-  }
 
-  /* ─── 恢复所有被隐藏的元素 ─── */
-  function restoreAll() {
-    removeBlockingStyle();
-    document.querySelectorAll(`[${NUKED_ATTR}]`).forEach((el) => {
-      el.removeAttribute(NUKED_ATTR);
-      el.style.removeProperty("display");
+    /* 频道页 chip */
+    document.querySelectorAll("yt-chip-cloud-chip-renderer").forEach((chip) => {
+      const text = (chip.textContent || "").trim().toLowerCase();
+      if (text === "shorts") {
+        hideByClass(chip);
+      }
     });
   }
 
@@ -248,23 +177,28 @@
      路由重定向
      ═══════════════════════════════════════ */
 
-  function getSmartRedirectUrl() {
-    const pathname = location.pathname;
+  function isShortsPath(pathname) {
+    return /\/shorts(\/|$|\?)/.test(pathname) || pathname.startsWith("/feed/shorts");
+  }
 
-    /* /@channel/shorts → /@channel */
-    const channelShortsMatch = pathname.match(
-      /^(\/@[^/]+|\/channel\/[^/]+|\/c\/[^/]+|\/user\/[^/]+)\/shorts/
-    );
-    if (channelShortsMatch) {
-      return location.origin + channelShortsMatch[1];
+  function isShortsUrl(url) {
+    try {
+      const u = new URL(url, location.origin);
+      if (u.hostname !== "youtube.com" && !u.hostname.endsWith(".youtube.com")) return false;
+      if (isShortsPath(u.pathname)) return true;
+      return u.searchParams.get("feature") === "shorts";
+    } catch {
+      return false;
     }
-
-    return HOME;
   }
 
   function redirectIfOnShorts() {
     if (!isShortsUrl(location.href)) return false;
-    const target = getSmartRedirectUrl();
+    const pathname = location.pathname;
+    const channelMatch = pathname.match(
+      /^(\/@[^/]+|\/channel\/[^/]+|\/c\/[^/]+|\/user\/[^/]+)\/shorts/
+    );
+    const target = channelMatch ? location.origin + channelMatch[1] : HOME;
     if (location.href !== target) {
       location.replace(target);
     }
@@ -275,15 +209,10 @@
      点击拦截
      ═══════════════════════════════════════ */
 
-  function interceptNavigationEvent(event) {
+  function interceptClick(event) {
     if (!enabled) return;
-
-    const anchor =
-      event.target && event.target.closest
-        ? event.target.closest("a[href]")
-        : null;
+    const anchor = event.target?.closest?.("a[href]");
     if (!anchor) return;
-
     const href = anchor.getAttribute("href");
     if (!href || !isShortsUrl(href)) return;
 
@@ -291,100 +220,104 @@
     event.stopPropagation();
     event.stopImmediatePropagation();
 
-    const u = normalizeUrl(href);
-    if (u) {
-      const channelMatch = u.pathname.match(
+    try {
+      const u = new URL(href, location.origin);
+      const m = u.pathname.match(
         /^(\/@[^/]+|\/channel\/[^/]+|\/c\/[^/]+|\/user\/[^/]+)\/shorts/
       );
-      if (channelMatch) {
-        location.assign(u.origin + channelMatch[1]);
-        return;
-      }
+      location.assign(m ? u.origin + m[1] : HOME);
+    } catch {
+      location.assign(HOME);
     }
-    location.assign(HOME);
   }
 
   /* ═══════════════════════════════════════
-     History 钩子 — SPA 导航检测
+     History 钩子 — SPA 导航
      ═══════════════════════════════════════ */
 
   function hookHistory() {
-    const originalPushState = history.pushState;
-    const originalReplaceState = history.replaceState;
+    const origPush = history.pushState;
+    const origReplace = history.replaceState;
 
-    function onRouteChange() {
-      if (!enabled) return;
-      scheduleCleanup();
-    }
-
-    history.pushState = function patchedPushState() {
-      const ret = originalPushState.apply(this, arguments);
-      onRouteChange();
+    history.pushState = function () {
+      const ret = origPush.apply(this, arguments);
+      onNavigate();
+      return ret;
+    };
+    history.replaceState = function () {
+      const ret = origReplace.apply(this, arguments);
+      onNavigate();
       return ret;
     };
 
-    history.replaceState = function patchedReplaceState() {
-      const ret = originalReplaceState.apply(this, arguments);
-      onRouteChange();
-      return ret;
-    };
+    ["popstate", "yt-navigate-finish"].forEach((e) => {
+      window.addEventListener(e, onNavigate, true);
+    });
+  }
 
-    /* 仅监听关键导航事件，移除过于频繁的 yt-action */
-    ["popstate", "yt-navigate-finish", "yt-page-data-updated"].forEach(
-      (eventName) => {
-        window.addEventListener(eventName, onRouteChange, true);
-      }
-    );
+  function onNavigate() {
+    if (!enabled) return;
+    if (redirectIfOnShorts()) return;
+    /* 导航后延迟执行一次标签清理 */
+    scheduleTabCleanup();
   }
 
   /* ═══════════════════════════════════════
-     主清理调度 — 防抖机制防止死循环
+     标签清理调度 — 大幅防抖避免闪烁
      ═══════════════════════════════════════ */
 
-  let cleanupTimer = null;
-  let isRunning = false;
-
-  function scheduleCleanup() {
-    if (cleanupTimer) return;
-    cleanupTimer = setTimeout(() => {
-      cleanupTimer = null;
-      cleanup();
-    }, 50);
-  }
-
-  function cleanup() {
-    if (!enabled || isRunning) return;
-    isRunning = true;
-
-    /* 暂停 observer 避免修改 DOM 时触发自身 → 死循环 */
-    observer.disconnect();
-
-    try {
-      injectBlockingStyle();
-      if (redirectIfOnShorts()) return;
-      nukeShortsRenderers();
-      nukeShortsOverlays();
-      nukeShortsLinks();
-      nukeShortsTabsByLabel();
-    } finally {
-      isRunning = false;
-      /* 重新连接 observer */
-      startObserver();
-    }
+  let tabTimer = null;
+  function scheduleTabCleanup() {
+    if (tabTimer) clearTimeout(tabTimer);
+    tabTimer = setTimeout(() => {
+      tabTimer = null;
+      if (enabled) hideShortsTabs();
+    }, 500);
   }
 
   /* ═══════════════════════════════════════
-     MutationObserver — DOM 变化检测
+     MutationObserver — 仅用于标签清理
+     ——————————————————————————————
+     不再通过 observer 修改内联样式。
+     CSS 选择器自动处理大部分隐藏工作。
+     Observer 仅负责文本匹配的导航标签。
      ═══════════════════════════════════════ */
 
+  let mutationCount = 0;
   const observer = new MutationObserver(() => {
     if (!enabled) return;
-    scheduleCleanup();
+    mutationCount++;
+    /* 每 10 次 DOM 变化才触发一次检查，大幅降低频率 */
+    if (mutationCount % 10 === 0) {
+      scheduleTabCleanup();
+    }
   });
 
-  function startObserver() {
-    const root = document.documentElement || document;
-    observer.observe(root, { childList: true, subtree: true });
+  /* ═══════════════════════════════════════
+     激活/停用
+     ═══════════════════════════════════════ */
+
+  function activate() {
+    injectStyle();
+    ensureHideClass();
+    if (redirectIfOnShorts()) return;
+    /* 延迟执行标签清理，等 DOM 就绪 */
+    scheduleTabCleanup();
+    observer.observe(document.documentElement || document, {
+      childList: true,
+      subtree: true,
+    });
+  }
+
+  function deactivate() {
+    removeStyle();
+    observer.disconnect();
+    /* 移除所有通过 class 隐藏的标记 */
+    document.querySelectorAll(`.${HIDE_CLASS}`).forEach((el) => {
+      el.classList.remove(HIDE_CLASS);
+    });
+    const hideClassStyle = document.getElementById("yt-no-shorts-hide-class");
+    if (hideClassStyle) hideClassStyle.remove();
   }
 
   /* ═══════════════════════════════════════
@@ -392,25 +325,16 @@
      ═══════════════════════════════════════ */
 
   hookHistory();
+  document.addEventListener("click", interceptClick, true);
+  document.addEventListener("auxclick", interceptClick, true);
 
-  /* 点击拦截 */
-  document.addEventListener("click", interceptNavigationEvent, true);
-  document.addEventListener("auxclick", interceptNavigationEvent, true);
+  /* 首次激活 */
+  if (enabled) activate();
 
-  /* 首次清理 */
-  if (enabled) {
-    cleanup();
-  }
-
-  /* 定时清理（兜底，间隔拉长避免性能问题） */
-  setInterval(() => {
-    if (enabled) scheduleCleanup();
-  }, 2000);
-
-  /* DOMContentLoaded 后再清理一次 */
+  /* DOMContentLoaded 后再检查一次标签 */
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => {
-      if (enabled) cleanup();
+      if (enabled) scheduleTabCleanup();
     }, { once: true });
   }
 })();
