@@ -1,0 +1,113 @@
+[
+  {
+    "id": 1,
+    "priority": 100,
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "url": "https://www.youtube.com/"
+      }
+    },
+    "condition": {
+      "regexFilter": "^https?://([a-zA-Z0-9-]+\\.)*youtube\\.com/([^?#]*/)?shorts(/|\\?|$)",
+      "resourceTypes": [
+        "main_frame"
+      ]
+    }
+  },
+  {
+    "id": 2,
+    "priority": 90,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "regexFilter": "^https?://([a-zA-Z0-9-]+\\.)*youtube\\.com/([^?#]*/)?shorts(/|\\?|$)",
+      "resourceTypes": [
+        "sub_frame",
+        "xmlhttprequest",
+        "script",
+        "image",
+        "media",
+        "font",
+        "stylesheet",
+        "other"
+      ]
+    }
+  },
+  {
+    "id": 3,
+    "priority": 80,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "regexFilter": "^https?://([a-zA-Z0-9-]+\\.)*youtube\\.com/youtubei/v1/reel(/|\\?|$)",
+      "resourceTypes": [
+        "xmlhttprequest",
+        "sub_frame",
+        "other"
+      ]
+    }
+  },
+  {
+    "id": 4,
+    "priority": 80,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "regexFilter": "^https?://([a-zA-Z0-9-]+\\.)*youtube\\.com/youtubei/v1/shorts(/|\\?|$)",
+      "resourceTypes": [
+        "xmlhttprequest",
+        "sub_frame",
+        "other"
+      ]
+    }
+  },
+  {
+    "id": 5,
+    "priority": 70,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "regexFilter": "^https?://([a-zA-Z0-9-]+\\.)*youtube\\.com/youtubei/v1/browse.*[?&]browseId=FEshorts",
+      "resourceTypes": [
+        "xmlhttprequest",
+        "sub_frame",
+        "other"
+      ]
+    }
+  },
+  {
+    "id": 6,
+    "priority": 70,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "regexFilter": "^https?://([a-zA-Z0-9-]+\\.)*youtube\\.com/.*shorts_shelf",
+      "resourceTypes": [
+        "xmlhttprequest",
+        "sub_frame",
+        "other"
+      ]
+    }
+  },
+  {
+    "id": 7,
+    "priority": 70,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "regexFilter": "^https?://([a-zA-Z0-9-]+\\.)*youtube\\.com/youtubei/v1/reel/reel_watch_sequence",
+      "resourceTypes": [
+        "xmlhttprequest",
+        "sub_frame",
+        "other"
+      ]
+    }
+  }
+]

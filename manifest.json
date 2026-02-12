@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "YouTubeNoShorts",
+  "version": "2.0.0",
+  "description": "Completely block YouTube Shorts: route redirect, UI cleanup, click interception, and Shorts API blocking. | 彻底屏蔽 YouTube Shorts：路由重定向、界面清理、点击拦截、API 屏蔽。",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": [
+    "declarativeNetRequest"
+  ],
+  "host_permissions": [
+    "https://youtube.com/*",
+    "https://*.youtube.com/*",
+    "http://youtube.com/*",
+    "http://*.youtube.com/*"
+  ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "shorts_rules",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://youtube.com/*",
+        "https://*.youtube.com/*",
+        "http://youtube.com/*",
+        "http://*.youtube.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ]
+}
