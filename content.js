@@ -98,6 +98,13 @@
     yt-tab-shape[tab-title="shorts"] {
       display: none !important;
     }
+
+    /* ── Shorts shelf 区块容器（搜索/首页中的 Shorts 推荐栏目） ── */
+    ytd-item-section-renderer:has(.ytGridShelfViewModelHost),
+    ytd-item-section-renderer:has(ytd-reel-shelf-renderer),
+    ytd-item-section-renderer:has(yt-shelf-header-layout) {
+      display: none !important;
+    }
   `;
 
   /* ═══════════════════════════════════════
@@ -144,18 +151,18 @@
 
   /* 通过文本内容匹配 Shorts 标签并隐藏 */
   function hideShortsTabs() {
-    const selectors = [
+    /* ── 1. 侧边栏导航标签 ── */
+    const navSelectors = [
       "ytd-guide-entry-renderer",
       "ytd-mini-guide-entry-renderer",
       "tp-yt-paper-item",
       "ytm-pivot-bar-item-renderer",
     ];
 
-    selectors.forEach((sel) => {
+    navSelectors.forEach((sel) => {
       document.querySelectorAll(sel).forEach((node) => {
         const text = (node.textContent || "").trim().toLowerCase();
         if (text && SHORTS_TEXTS.some((label) => text === label || text.includes(label))) {
-          /* 确认是导航 Shorts 入口而非普通内容 */
           const link = node.querySelector("a");
           if (!link || (link.href && link.href.includes("shorts"))) {
             hideByClass(node);
@@ -164,11 +171,28 @@
       });
     });
 
-    /* 频道页 chip */
+    /* ── 2. 搜索筛选 chip（"Shorts" 按钮） ── */
     document.querySelectorAll("yt-chip-cloud-chip-renderer").forEach((chip) => {
       const text = (chip.textContent || "").trim().toLowerCase();
-      if (text === "shorts") {
+      if (SHORTS_TEXTS.some((label) => text === label)) {
         hideByClass(chip);
+      }
+    });
+
+    /* ── 3. Shorts 区块标题和容器 ── */
+    document.querySelectorAll("ytd-item-section-renderer").forEach((section) => {
+      /* 检查是否包含 Shorts shelf */
+      if (
+        section.querySelector(".ytGridShelfViewModelHost") ||
+        section.querySelector("ytd-reel-shelf-renderer") ||
+        section.querySelector("yt-shelf-header-layout")
+      ) {
+        /* 检查标题文本是否为 Shorts */
+        const header = section.querySelector("h2, .yt-shelf-header-layout__title");
+        const headerText = (header?.textContent || "").trim().toLowerCase();
+        if (SHORTS_TEXTS.some((label) => headerText === label || headerText.includes(label))) {
+          hideByClass(section);
+        }
       }
     });
   }
